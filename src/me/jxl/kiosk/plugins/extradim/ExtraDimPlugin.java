@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package me.jxl.kiosk.plugins.extradim;
 
+import java.util.Collections;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -23,6 +25,11 @@ public final class ExtraDimPlugin implements KioskPlugin {
     static final String SWITCH_NAME = "Extra dim";
     static final String SETTINGS = "/system/bin/settings";
     static final String SH = "/system/bin/sh";
+    static final String MODE_OFF = "Off";
+    static final String MODE_LUX = "Room light";
+    static final String MODE_PANEL = "Panel brightness";
+    static final String LIGHT_EVENT = "device.light";
+    static final String BRIGHTNESS_EVENT = "screen.brightness";
     static final String READ_SCRIPT =
         "settings get secure reduce_bright_colors_activated; settings get secure reduce_bright_colors_level";
 
@@ -42,6 +49,14 @@ public final class ExtraDimPlugin implements KioskPlugin {
     private boolean controlLevel;
     private int level = 50;
     private long pollNanos = TimeUnit.SECONDS.toNanos(15);
+    private String autoMode = MODE_OFF;
+
+    // Automatic mode
+    private final AutoController auto = new AutoController();
+    private String subscribed;
+    private long autoRevision;
+    private String autoText;
+    private boolean noSensor;
 
     // State
     private Boolean knownOn;      // null until the first successful read
@@ -58,6 +73,9 @@ public final class ExtraDimPlugin implements KioskPlugin {
 
     @Override public synchronized void start(PluginHost host, Map<String, Object> settings) {
         this.host = host;
+        subscribed = null;
+        autoText = null;
+        noSensor = false;
         applySettings(settings);
         nextPoll = 0;
         if (runTimer) {
@@ -75,6 +93,7 @@ public final class ExtraDimPlugin implements KioskPlugin {
         boolean wasControlling = controlLevel;
         int previousLevel = level;
         applySettings(settings);
+
         // Apply a new intensity straight away while Extra dim is on.
         if (controlLevel && Boolean.TRUE.equals(knownOn) && wantedOn == null
             && (!wasControlling || previousLevel != level)) {
@@ -95,6 +114,12 @@ public final class ExtraDimPlugin implements KioskPlugin {
             Object on = payload == null ? null : payload.get("on");
             if (!(on instanceof Boolean)) throw new IllegalArgumentException("Extra dim switch requires a boolean");
             request((Boolean) on);
+        } else if (("ks." + LIGHT_EVENT).equals(event)) {
+            if (MODE_LUX.equals(autoMode)) auto.reading(number(payload == null ? null : payload.get("lux")));
+            tick();
+        } else if (("ks." + BRIGHTNESS_EVENT).equals(event)) {
+            if (MODE_PANEL.equals(autoMode)) auto.reading(number(payload == null ? null : payload.get("panel")));
+            tick();
         } else if ("shizuku.state".equals(event)) {
             nextPoll = 0;
             tick();
@@ -111,6 +136,9 @@ public final class ExtraDimPlugin implements KioskPlugin {
             knownOn = null;
             knownLevel = null;
             accessPublished = false;
+            subscribed = null;
+            autoRevision++;
+            auto.reset();
             old = timer;
             timer = null;
         }
@@ -132,6 +160,94 @@ public final class ExtraDimPlugin implements KioskPlugin {
         if (rawPoll instanceof Number) {
             pollNanos = TimeUnit.SECONDS.toNanos(clamp(((Number) rawPoll).intValue(), 5, 300));
         }
+        String nextMode = String.valueOf(settings.get("autoMode"));
+        if (!MODE_LUX.equals(nextMode) && !MODE_PANEL.equals(nextMode)) nextMode = MODE_OFF;
+        long delay = TimeUnit.SECONDS.toNanos(clamp(intSetting(settings, "autoDelay", 10), 0, 300));
+        if (MODE_LUX.equals(nextMode)) {
+            auto.configure(doubleSetting(settings, "luxOn", 5), doubleSetting(settings, "luxOff", 20), delay);
+        } else if (MODE_PANEL.equals(nextMode)) {
+            auto.configure(doubleSetting(settings, "panelOn", 2) / 100.0, doubleSetting(settings, "panelOff", 10) / 100.0, delay);
+        }
+        if (!nextMode.equals(autoMode)) {
+            autoMode = nextMode;
+            auto.reset();
+            autoRevision++;
+            noSensor = false;
+        }
+        updateSubscription();
+    }
+
+    private void updateSubscription() {
+        if (host == null) return;
+        String wanted = MODE_LUX.equals(autoMode) ? LIGHT_EVENT : MODE_PANEL.equals(autoMode) ? BRIGHTNESS_EVENT : null;
+        if (wanted == null ? subscribed == null : wanted.equals(subscribed)) return;
+        try {
+            if (subscribed != null) host.unsubscribe(subscribed);
+            subscribed = null;
+            if (wanted == null) return;
+            // Subscribe first, then read the starting value, as the SDK recommends.
+            host.subscribe(wanted);
+            subscribed = wanted;
+            readInitial(wanted);
+        } catch (RuntimeException failure) {
+            host.status("Automatic mode could not watch " + (LIGHT_EVENT.equals(wanted) ? "the light sensor" : "brightness")
+                + ": " + message(failure), true);
+        }
+    }
+
+    private void readInitial(String event) {
+        final PluginHost owner = host;
+        final long revision = autoRevision;
+        final boolean light = LIGHT_EVENT.equals(event);
+        Map<String, Object> arguments = light
+            ? Collections.<String, Object>emptyMap()
+            : Collections.<String, Object>singletonMap("panel", Boolean.TRUE);
+        owner.executeCommand(light ? "getLightLevel" : "getBrightness", arguments, (ok, data, error) -> {
+            synchronized (ExtraDimPlugin.this) {
+                if (host != owner || revision != autoRevision || !ok) return;
+                // An event that arrived meanwhile is newer than this read.
+                if (auto.reading() != null) return;
+                if (light) {
+                    Map<?, ?> level = data instanceof Map ? (Map<?, ?>) data : null;
+                    if (level != null && Boolean.FALSE.equals(level.get("present"))) {
+                        noSensor = true;
+                        tick();
+                        return;
+                    }
+                    auto.reading(level == null ? null : number(level.get("lux")));
+                } else {
+                    auto.reading(number(data));
+                }
+                tick();
+            }
+        });
+    }
+
+    /** Applies automatic decisions and refreshes the Automatic sensor. */
+    private void autoStep(long now) {
+        if (MODE_OFF.equals(autoMode)) {
+            publishAuto("Off");
+            return;
+        }
+        if (noSensor && MODE_LUX.equals(autoMode)) {
+            publishAuto("Room light: this tablet has no light sensor");
+            return;
+        }
+        Double reading = auto.reading();
+        Boolean zone = auto.zone();
+        String where = zone == null ? "between thresholds" : zone ? "dark" : "bright";
+        publishAuto(reading == null ? autoMode + ": waiting for a reading"
+            : MODE_LUX.equals(autoMode)
+            ? String.format(Locale.ROOT, "Room light %.0f lux, %s", reading, where)
+            : String.format(Locale.ROOT, "Panel brightness %.0f%%, %s", reading * 100, where));
+        Boolean turnOn = auto.poll(now);
+        if (turnOn != null && !turnOn.equals(knownOn) && wantedOn == null) wantedOn = turnOn;
+    }
+
+    private void publishAuto(String text) {
+        if (text.equals(autoText)) return;
+        autoText = text;
+        host.publishTextSensor("auto", "Automatic", text);
     }
 
     private boolean currentOn() {
@@ -152,9 +268,8 @@ public final class ExtraDimPlugin implements KioskPlugin {
 
     /** Runs at most one Shizuku command. Called by the timer, events and finished commands. */
     synchronized void tick() {
-        if (host == null || pending) return;
+        if (host == null) return;
         long now = clock.getAsLong();
-        if (lastRequest != 0 && now - lastRequest < MIN_GAP) return;
         boolean access;
         try {
             access = granted();
@@ -171,6 +286,8 @@ public final class ExtraDimPlugin implements KioskPlugin {
                 : "Start Shizuku on the tablet, then grant Kiosk Satellite access.", false);
             return;
         }
+        autoStep(now);
+        if (pending || (lastRequest != 0 && now - lastRequest < MIN_GAP)) return;
         if (wantedOn != null) {
             boolean on = wantedOn;
             wantedOn = null;
@@ -285,6 +402,18 @@ public final class ExtraDimPlugin implements KioskPlugin {
     // Visible for tests.
     synchronized Boolean knownOn() { return knownOn; }
     synchronized Integer knownLevel() { return knownLevel; }
+
+    private static Double number(Object value) {
+        return value instanceof Number ? ((Number) value).doubleValue() : null;
+    }
+    private static int intSetting(Map<String, Object> settings, String key, int fallback) {
+        Object value = settings.get(key);
+        return value instanceof Number ? ((Number) value).intValue() : fallback;
+    }
+    private static double doubleSetting(Map<String, Object> settings, String key, double fallback) {
+        Object value = settings.get(key);
+        return value instanceof Number ? ((Number) value).doubleValue() : fallback;
+    }
 
     private static int clamp(int value, int min, int max) { return Math.max(min, Math.min(max, value)); }
     private static String trim(String text) { return text.length() > 200 ? text.substring(0, 200) : text; }

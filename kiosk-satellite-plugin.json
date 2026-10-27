@@ -7,12 +7,13 @@
   "minAndroidSdk": 31,
   "minAppVersion": "2026.10.42",
   "entryClass": "me.jxl.kiosk.plugins.extradim.ExtraDimPlugin",
-  "description": "Turns Android's Extra dim (reduce_bright_colors_activated) on and off through Kiosk Satellite's Shizuku connection. Exposes a Home Assistant switch and On, Off and Toggle actions for gestures and the drawer. Built for Samsung tablets and works on any Android 12+ device with the same setting.",
+  "description": "Turns Android's Extra dim (reduce_bright_colors_activated) on and off through Kiosk Satellite's Shizuku connection, by hand or automatically from room light or panel brightness. Exposes a Home Assistant switch and On, Off and Toggle actions for gestures and the drawer. Built for Samsung tablets and works on any Android 12+ device with the same setting.",
   "author": "Jonathan Robichaud",
   "license": "Apache-2.0",
   "capabilities": [
     "shizuku",
-    "entities"
+    "entities",
+    "host.read"
   ],
   "settings": [
     {
@@ -34,7 +35,10 @@
       "step": 1,
       "unit": "%",
       "default": 50,
-      "visibleWhen": { "key": "controlLevel", "equals": true }
+      "visibleWhen": {
+        "key": "controlLevel",
+        "equals": true
+      }
     },
     {
       "key": "pollSeconds",
@@ -47,14 +51,130 @@
       "step": 5,
       "unit": "s",
       "default": 15
+    },
+    {
+      "key": "autoMode",
+      "type": "select",
+      "title": "Automatic",
+      "group": "Automatic",
+      "options": [
+        "Off",
+        "Room light",
+        "Panel brightness"
+      ],
+      "default": "Off",
+      "description": "Room light follows the light sensor. Panel brightness follows the screen level that adaptive brightness sets. Manual changes stay until the light crosses the other threshold."
+    },
+    {
+      "key": "luxOn",
+      "type": "number",
+      "title": "Turn on at or below",
+      "group": "Automatic",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "lux",
+      "default": 5,
+      "visibleWhen": {
+        "key": "autoMode",
+        "equals": "Room light"
+      }
+    },
+    {
+      "key": "luxOff",
+      "type": "number",
+      "title": "Turn off at or above",
+      "group": "Automatic",
+      "min": 1,
+      "max": 500,
+      "step": 1,
+      "unit": "lux",
+      "default": 20,
+      "input": "field",
+      "description": "Keep this higher than the on level so Extra dim does not flicker.",
+      "visibleWhen": {
+        "key": "autoMode",
+        "equals": "Room light"
+      }
+    },
+    {
+      "key": "panelOn",
+      "type": "number",
+      "title": "Turn on at or below",
+      "group": "Automatic",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "%",
+      "default": 2,
+      "visibleWhen": {
+        "key": "autoMode",
+        "equals": "Panel brightness"
+      }
+    },
+    {
+      "key": "panelOff",
+      "type": "number",
+      "title": "Turn off at or above",
+      "group": "Automatic",
+      "min": 1,
+      "max": 100,
+      "step": 1,
+      "unit": "%",
+      "default": 10,
+      "description": "Keep this higher than the on level so Extra dim does not flicker.",
+      "visibleWhen": {
+        "key": "autoMode",
+        "equals": "Panel brightness"
+      }
+    },
+    {
+      "key": "autoDelay",
+      "type": "number",
+      "title": "Wait before switching",
+      "group": "Automatic",
+      "min": 0,
+      "max": 120,
+      "step": 5,
+      "unit": "s",
+      "default": 10,
+      "description": "The light has to stay past a threshold this long, so a passing shadow does not trigger it.",
+      "visibleWhen": {
+        "key": "autoMode",
+        "notEquals": "Off"
+      }
     }
   ],
   "commands": [
-    { "id": "turnOn", "title": "Turn Extra dim on" },
-    { "id": "turnOff", "title": "Turn Extra dim off" },
-    { "id": "toggle", "title": "Toggle Extra dim" }
+    {
+      "id": "turnOn",
+      "title": "Turn Extra dim on"
+    },
+    {
+      "id": "turnOff",
+      "title": "Turn Extra dim off"
+    },
+    {
+      "id": "toggle",
+      "title": "Toggle Extra dim"
+    }
   ],
   "groups": [
-    { "title": "Extra dim", "readingsTitle": "Current state", "readings": ["*"] }
+    {
+      "title": "Extra dim",
+      "readingsTitle": "Current state",
+      "readings": [
+        "switch.extra_dim",
+        "text_sensor.level",
+        "binary_sensor.shizuku"
+      ]
+    },
+    {
+      "title": "Automatic",
+      "readingsTitle": "Automatic readings",
+      "readings": [
+        "text_sensor.auto"
+      ]
+    }
   ]
 }
