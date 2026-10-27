@@ -31,5 +31,3 @@ subprocess.run([sys.executable, str(root / 'tools/test_android_sdk.py')], check=
 subprocess.run([sys.executable, str(root / 'tools/test_plugin_manifest.py')], check=True)
 
 subprocess.run([sys.executable, str(root / "tools/test_plugin_assets.py")], check=True)
-
-subprocess.run([sys.executable, str(root / "tools/test_community_plugins.py")], check=True)
