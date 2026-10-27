@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "extra-dim-control",
+  "name": "Extra Dim Control",
+  "version": "1.0.0",
+  "minAndroidSdk": 31,
+  "minAppVersion": "2026.10.42",
+  "entryClass": "me.jxl.kiosk.plugins.extradim.ExtraDimPlugin",
+  "description": "Turns Android's Extra dim (reduce_bright_colors_activated) on and off through Kiosk Satellite's Shizuku connection. Exposes a Home Assistant switch and On, Off and Toggle actions for gestures and the drawer. Built for Samsung tablets and works on any Android 12+ device with the same setting.",
+  "author": "Jonathan Robichaud",
+  "license": "Apache-2.0",
+  "capabilities": [
+    "shizuku",
+    "entities"
+  ],
+  "settings": [
+    {
+      "key": "controlLevel",
+      "type": "boolean",
+      "title": "Set intensity",
+      "description": "Also write reduce_bright_colors_level whenever Extra dim is turned on. Leave off to keep the intensity chosen on the tablet.",
+      "group": "Extra dim",
+      "default": false
+    },
+    {
+      "key": "level",
+      "type": "number",
+      "title": "Intensity",
+      "description": "0 is the mildest dimming and 100 the strongest.",
+      "group": "Extra dim",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "%",
+      "default": 50,
+      "visibleWhen": { "key": "controlLevel", "equals": true }
+    },
+    {
+      "key": "pollSeconds",
+      "type": "number",
+      "title": "Check state every",
+      "description": "How often to read the setting so Home Assistant notices changes made from quick settings.",
+      "group": "Extra dim",
+      "min": 5,
+      "max": 300,
+      "step": 5,
+      "unit": "s",
+      "default": 15
+    }
+  ],
+  "commands": [
+    { "id": "turnOn", "title": "Turn Extra dim on" },
+    { "id": "turnOff", "title": "Turn Extra dim off" },
+    { "id": "toggle", "title": "Toggle Extra dim" }
+  ],
+  "groups": [
+    { "title": "Extra dim", "readingsTitle": "Current state", "readings": ["*"] }
+  ]
+}
