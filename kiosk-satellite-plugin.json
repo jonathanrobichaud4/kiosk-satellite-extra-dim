@@ -38,7 +38,8 @@
       "visibleWhen": {
         "key": "controlLevel",
         "equals": true
-      }
+      },
+      "input": "field"
     },
     {
       "key": "pollSeconds",
@@ -50,7 +51,8 @@
       "max": 300,
       "step": 5,
       "unit": "s",
-      "default": 15
+      "default": 15,
+      "input": "field"
     },
     {
       "key": "autoMode",
@@ -145,7 +147,8 @@
       "visibleWhen": {
         "key": "autoMode",
         "notEquals": "Off"
-      }
+      },
+      "input": "field"
     }
   ],
   "commands": [
