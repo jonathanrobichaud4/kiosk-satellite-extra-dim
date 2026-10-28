@@ -78,7 +78,8 @@
       "visibleWhen": {
         "key": "autoMode",
         "equals": "Room light"
-      }
+      },
+      "input": "field"
     },
     {
       "key": "luxOff",
@@ -110,7 +111,8 @@
       "visibleWhen": {
         "key": "autoMode",
         "equals": "Panel brightness"
-      }
+      },
+      "input": "field"
     },
     {
       "key": "panelOff",
@@ -126,7 +128,8 @@
       "visibleWhen": {
         "key": "autoMode",
         "equals": "Panel brightness"
-      }
+      },
+      "input": "field"
     },
     {
       "key": "autoDelay",
